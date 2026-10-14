@@ -1,0 +1,11 @@
+[project]
+name = "k6-bench-scripts"
+version = "0.1.0"
+description = "Host-side tooling for k6-bench: samplers, job collection, charts"
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg[binary]==3.3.6",
+]
+
+[tool.uv]
+package = false

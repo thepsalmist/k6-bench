@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: uvx ruff@0.17.0 check .
+      - run: uvx ruff@0.17.0 format --check .
+      - name: Django system checks (both backends)
+        working-directory: targets/django-common
+        run: |
+          for backend in procrastinate celery; do
+            DJANGO_SETTINGS_MODULE=benchsite.settings.$backend \
+              uv run --frozen --extra procrastinate --extra celery python app/manage.py check
+          done
+
+  e2e:
+    # A short end-to-end run per target: proves the harness loop and that every
+    # accepted enqueue request shows up as a finished job.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [static-nginx, django-procrastinate, django-celery]
+    env:
+      SCENARIO_WARMUP: 5s
+      SCENARIO_RAMP: 2s
+      SCENARIO_HOLD: 10s
+      SCENARIO_STEPS: 0,10
+      SCENARIO_APP_RATE: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: ./scripts/run.sh queue-contention ${{ matrix.target }} smoke
+      - name: Check results
+        run: |
+          res=$(ls -d results/*/ | tail -1)
+          for f in meta.json summary.json schedule.json steps.json k6.json.gz containers.csv; do
+            test -s "$res/$f" || { echo "missing $f"; exit 1; }
+          done
+          jq -e 'length > 0' "$res/steps.json"
+          if [ -f "$res/jobs_summary.json" ]; then
+            accepted=$(zcat "$res/k6.json.gz" | jq -s '[.[] | select(.type == "Point" and .metric == "http_reqs"
+              and .data.tags.endpoint == "POST /enqueue" and .data.tags.status == "202")] | length')
+            jq -e --argjson n "$accepted" '.total_jobs == $n and .total_jobs > 0 and .unfinished_after_drain == 0' \
+              "$res/jobs_summary.json"
+          fi
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: results-${{ matrix.target }}
+          path: results/

@@ -1,0 +1,9 @@
+services:
+  web:
+    image: nginx:1.30.5-alpine
+    ports:
+      - "127.0.0.1:${APP_PORT:-18080}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    cpus: ${WEB_CPUS:-0.7}
+    mem_limit: ${WEB_MEM:-1024m}

@@ -1,0 +1,43 @@
+x-backend: &backend
+  build:
+    args:
+      BACKEND: celery
+  environment:
+    DJANGO_SETTINGS_MODULE: benchsite.settings.celery
+    CELERY_DB_REUSE_MAX: ${CELERY_DB_REUSE_MAX:-1000000}
+
+services:
+  postgres:
+    extends: { file: ../django-common/compose.base.yml, service: postgres }
+
+  redis:
+    image: redis:8.10.2-trixie
+    cpus: ${BROKER_CPUS:-0.25}
+    mem_limit: ${BROKER_MEM:-256m}
+
+  migrate:
+    extends: { file: ../django-common/compose.base.yml, service: migrate }
+    <<: *backend
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  web:
+    extends: { file: ../django-common/compose.base.yml, service: web }
+    <<: *backend
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+
+  worker:
+    extends: { file: ../django-common/compose.base.yml, service: worker }
+    <<: *backend
+    command:
+      - celery
+      - --app=benchsite.celery_app
+      - worker
+      - --pool=${CELERY_POOL:-prefork}
+      - --concurrency=${WORKER_CONCURRENCY:-4}
+      - --loglevel=WARNING
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }

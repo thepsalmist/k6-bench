@@ -1,0 +1,48 @@
+# Shared by every Django target so Postgres, the app image and resource limits stay identical.
+services:
+  postgres:
+    image: postgres:18.6-trixie
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: bench
+    ports:
+      - "127.0.0.1:${PG_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bench -d bench"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    cpus: ${DB_CPUS:-0.8}
+    mem_limit: ${DB_MEM:-1536m}
+
+  migrate:
+    build: .
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    environment: &app-env
+      DB_HOST: postgres
+    cpus: ${WEB_CPUS:-0.7}
+    mem_limit: ${WEB_MEM:-1024m}
+
+  web:
+    build: .
+    command:
+      - gunicorn
+      - benchsite.wsgi
+      - --bind=0.0.0.0:8000
+      - --worker-class=gthread
+      - --workers=${WEB_WORKERS:-2}
+      - --threads=${WEB_THREADS:-4}
+      # Above the 2s default so idle k6 connections aren't closed mid-reuse (EOF errors).
+      - --keep-alive=75
+    environment: *app-env
+    ports:
+      - "127.0.0.1:${APP_PORT:-18080}:8000"
+    cpus: ${WEB_CPUS:-0.7}
+    mem_limit: ${WEB_MEM:-1024m}
+
+  worker:
+    build: .
+    environment: *app-env
+    cpus: ${WORKER_CPUS:-0.5}
+    mem_limit: ${WORKER_MEM:-1024m}

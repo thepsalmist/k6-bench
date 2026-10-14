@@ -1,0 +1,34 @@
+x-backend: &backend
+  build:
+    args:
+      BACKEND: procrastinate
+  environment:
+    DJANGO_SETTINGS_MODULE: benchsite.settings.procrastinate
+
+services:
+  postgres:
+    extends: { file: ../django-common/compose.base.yml, service: postgres }
+
+  migrate:
+    extends: { file: ../django-common/compose.base.yml, service: migrate }
+    <<: *backend
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  web:
+    extends: { file: ../django-common/compose.base.yml, service: web }
+    <<: *backend
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    extends: { file: ../django-common/compose.base.yml, service: worker }
+    <<: *backend
+    command:
+      - python
+      - manage.py
+      - procrastinate
+      - worker
+      - --concurrency=${WORKER_CONCURRENCY:-4}
+    depends_on:
+      migrate: { condition: service_completed_successfully }

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+{
+  docker compose exec -T web python - <<'PY'
+import json, platform
+from importlib import metadata
+
+out = {"python": platform.python_version()}
+for name in ["django", "gunicorn", "psycopg", "procrastinate", "celery", "kombu", "redis"]:
+    try:
+        out[name] = metadata.version(name)
+    except metadata.PackageNotFoundError:
+        pass
+print(json.dumps(out))
+PY
+  if docker compose ps --services | grep -qx redis; then
+    docker compose exec -T redis redis-server --version | jq -R '{redis_server: .}'
+  fi
+} | jq -s 'add'
